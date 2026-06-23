@@ -30,7 +30,7 @@ Every `VULNERABLE` finding includes the exact crafted token so you can instantly
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/active_jwt
+git clone https://github.com/doctornew22/active-jwt
 cd active_jwt
 
 ## Requirements
