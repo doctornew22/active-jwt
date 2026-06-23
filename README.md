@@ -37,7 +37,7 @@ cd active_jwt
 
 - Python 3.8+
 - `requests`
--`urllib3>=1.26.0
+-`urllib3>=1.26.0`
 - `cryptography`
 
 
