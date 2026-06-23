@@ -1,21 +1,45 @@
-# Active JWT Breaker
+```markdown
+#  Active-jwtbreaker
 
-A Python tool for active JWT security testing against live endpoints. This script performs several attack-style tests on a provided JWT, including:
+**Active JWT vulnerability tester** — sends real HTTP requests, diffs responses, and provides a clear verdict on whether your token handling is secure.  
+Every `VULNERABLE` finding includes the exact crafted token so you can instantly verify and exploit.
 
-- `alg:none` signature bypass
-- `kid` header injection
-- attacker-provided JWK key validation
-- role and identity tampering
-- token expiry manipulation
-- optional logout/session invalidation replay
+> ⚠️ **Only use on targets you are authorised to test. Unauthorised testing is illegal.**
 
-> WARNING: This tool sends real HTTP requests to the target. Use it only against systems you are authorized to test. The author is not responsible for any misuse or unauthorized activity.
+---
+
+## ✨ Features
+
+- **7 automated tests** covering the most common JWT misconfigurations:
+  1. **alg:none** – signature verification bypass
+  2. **KID injection** – path traversal & SQLi via key identifier
+  3. **jwk embed** – self-signed public key injection
+  4. **Role/identity tampering** – privilege escalation by re-signing payload
+  5. **Expiry manipulation** – removing `exp` claim to test lifetime enforcement
+  6. **Logout replay** – session invalidation check after logout
+  7. **Baseline validation** – confirms the original token works before testing
+
+- **Intelligent response diffing** – compares status codes, body content (login page detection), redirect URLs, and size changes to avoid false positives.
+- **Multi‑location support** – works with `Authorization: Bearer` and cookies (`cookie:NAME`).
+- **Coloured terminal output** – easy-to-read verdicts with payloads highlighted.
+- **User‑agent rotation & random delays** to avoid simple rate‑limiting.
+
+---
+
+## 📦 Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/your-username/active_jwt.git
+cd active_jwt
 
 ## Requirements
 
 - Python 3.8+
 - `requests`
+-`urllib3>=1.26.0
 - `cryptography`
+
 
 Install dependencies:
 
@@ -23,66 +47,142 @@ Install dependencies:
 pip install requests cryptography
 ```
 
-## Usage
+cryptography is only needed for the jwk embed test (RSA key generation). The tool will work without it if you skip that test.
+
+---
+
+🚀 Usage
 
 ```bash
-python active_jwtbreaker.py \
-  --token "<JWT>" \
-  --url "https://target.com/protected" \
-  --token-location "bearer"
+python jwt_lifecycle_tester.py --token "eyJ..." --url "https://target.com/api/profile"
 ```
 
-### Required arguments
-
-- `--token`: The JWT to test.
-- `--url`: The protected endpoint URL to evaluate.
-
-### Optional arguments
-
-- `--logout-url`: Logout endpoint URL for session invalidation replay testing.
-- `--secret`: Known or guessed HMAC secret, used for payload re-signing tests.
-- `--victim`: Victim identity value to inject into the token (default: `victim@target.com`).
-- `--admin`: Admin role value to inject into the token (default: `administrator`).
-- `--token-location`: Where to place the token. Use `bearer` for `Authorization: Bearer <token>` or `cookie:NAME` to send it in a cookie.
-- `--skip`: Skip one or more tests. Valid values: `alg_none`, `kid`, `jwk_embed`, `role`, `expiry`, `logout`.
-
-## What the script does
-
-1. Sends a baseline request using the original JWT.
-2. Tests `alg:none` bypass variants.
-3. Tests `kid` header injection and weak-signature fallback cases.
-4. Tests attacker-supplied JWK embedded in the JWT header.
-5. Tests role or identity field tampering when a valid secret is provided.
-6. Tests expiry claim manipulation when a valid secret is provided.
-7. Optionally performs logout replay testing if `--logout-url` is provided.
-
-## Output
-
-The script prints test headers and verdicts such as:
-
-- `VULNERABLE`
-- `SAFE`
-- `INCONCLUSIVE`
-- `SKIPPED`
-- `ERROR`
-
-At the end it prints a summary of all tests.
-
-## Best practices
-
-- Confirm the target URL is a protected endpoint that requires the provided JWT.
-- Use correct token placement with `--token-location`.
-- Provide `--secret` only when you know or strongly suspect the HMAC secret.
-- Review all output carefully before drawing conclusions.
-- Always operate within the scope of your authorization.
-
-## Example
+Full example
 
 ```bash
-python active_jwtbreaker.py \
+python jwt_lifecycle_tester.py \
   --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
-  --url "https://target.com/api/profile" \
-  --token-location "bearer" \
-  --secret "mysecret" \
-  --logout-url "https://target.com/logout"
+  --url "https://api.example.com/user/me" \
+  --secret "my-secret-key" \
+  --victim "admin@example.com" \
+  --admin "administrator" \
+  --logout-url "https://api.example.com/auth/logout" \
+  --token-location "cookie:Authorization" \
+  --skip jwk_embed
+```
+
+Options
+
+Flag Description Default
+--token JWT string to test (required) –
+--url Protected API endpoint URL (required) –
+--logout-url Logout endpoint for session invalidation test None
+--secret HMAC secret – enables role/expiry tampering tests (re‑signing) None
+--victim Victim identity to inject into sub/email/username etc. victim@target.com
+--admin Admin role value to inject into role/isAdmin/group fields administrator
+--token-location How the token is sent: bearer (header) or cookie:COOKIE_NAME bearer
+--skip Skip specific tests: alg_none, kid, jwk_embed, role, expiry, logout (can list multiple) []
+
+---
+
+🔍 How Each Test Works
+
+1. Baseline
+
+The original token is sent to ensure the endpoint returns a valid 2xx response. This response becomes the reference for all subsequent tests.
+
+2. alg:none
+
+Modifies the header to "alg":"none" (and various case variants) and sends the token without a signature. If accepted, signature verification is broken.
+
+3. KID Injection
+
+If the token contains a kid (key ID), the tool tries:
+
+· Path traversal – "../../../../../../../dev/null" with an empty secret (HS256).
+· SQL injection – "x' UNION SELECT '1';--" with secret "1".
+  If any variant is accepted, the server is blindly trusting the kid value to fetch keys.
+
+4. jwk Embed
+
+Generates a fresh RSA key‑pair, embeds the public key as a jwk header, and signs with the private key. If accepted, the server trusts attacker‑supplied keys.
+
+5. Role & Identity Tampering
+
+(Requires --secret)
+Modifies role fields (role, isAdmin, …) and identity fields (sub, email, …), re‑signs with the known secret, and checks if the response differs (indicating escalated privileges).
+
+6. Expiry Manipulation
+
+(Requires --secret)
+Removes the exp claim, re‑signs, and checks if the token is still accepted – revealing a missing expiry check.
+
+7. Logout Replay
+
+Posts to the logout URL (if given) with the original token, then reuses the same token. If still accepted, the server is not invalidating tokens on logout.
+
+---
+
+📊 Sample Output
+
+```
+  ╦╦ ╦╔╦╗  ╦  ╦╔═╗╔═╗╔═╗╦ ╦╔═╗╦  ╔═╗  ╔╦╗╔═╗╔═╗╔╦╗╔═╗╦═╗
+  ║║║║ ║   ║  ║╠╣ ║╣ ║  ╚╦╝║   ║  ║╣    ║ ║╣ ╚═╗ ║ ║╣ ╠╦╝
+  ╚╩╩╝ ╩   ╩═╝╩╚  ╚═╝╚═╝ ╩ ╚═╝╚═╝╚═╝   ╩ ╚═╝╚═╝ ╩ ╚═╝╩╚═
+  Active JWT tester — sends real requests, diffs responses
+  WARNING: Only use on targets you are authorized to test.
+
+  Target  : https://api.example.com/user/me
+  Location: bearer
+  Header  : {"alg":"HS256","typ":"JWT"}
+  Payload : {"sub":"123","user":"demo","role":"user","exp":1719000000}
+
+  ────────────────────────────────────────────────────────────────
+  BASELINE — confirming original token works
+  ────────────────────────────────────────────────────────────────
+    Status: 200, Body: 4231 bytes
+    [OK] Baseline 2xx — proceeding
+
+  ────────────────────────────────────────────────────────────────
+  ALG:NONE — signature verification bypass
+  ────────────────────────────────────────────────────────────────
+    alg="none" trailing dot → HTTP 200 (rejected)
+    alg="None" trailing dot → HTTP 200 (rejected)
+    ...
+    [SAFE] All alg:none variants rejected
+
+  ────────────────────────────────────────────────────────────────
+  KID INJECTION — path traversal / SQLi (multi-variant)
+  ────────────────────────────────────────────────────────────────
+    kid="../../../../../../dev/null" → HTTP 200 (rejected)
+    kid="x' UNION SELECT '1';--" → HTTP 200 (rejected)
+    [SAFE] All kid injection variants rejected
+
+  ────────────────────────────────────────────────────────────────
+  ROLE/IDENTITY TAMPERING — privilege escalation
+  ────────────────────────────────────────────────────────────────
+    role="administrator" → HTTP 200, body size 4231 → 5420 bytes
+    [VULNERABLE] role="administrator" → HTTP 200, body size 4231 → 5420 bytes
+
+    ► PAYLOAD — paste this token into your cookie/header:
+    eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMiLCJ1c2VyIjoiZGVtbyIsInJvbGUiOiJhZG1pbmlzdHJhdG9yIiwiZXhwIjoxNzE5MDAwMDAwfQ.fake-sig
+
+  ...
+
+  ================================================================
+  SUMMARY
+  ================================================================
+    alg_none     [SAFE]
+    kid          [SAFE]
+    jwk_embed    [SKIPPED]
+    role         [VULNERABLE] role=administrator
+    expiry       [SAFE]
+    logout       [INCONCLUSIVE]
+
+  ⚠ 1 issue(s) found: role
+  Verify manually — check the payload shown above each finding.
+```
+
+Remember: This tool is for security professionals and bug bounty hunters. Always have explicit permission before testing.
+
 ```
