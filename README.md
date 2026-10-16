@@ -186,4 +186,5 @@ Posts to the logout URL (if given) with the original token, then reuses the same
 Remember: This tool is for security professionals and bug bounty hunters. Always have explicit permission before testing.
 
 ```
-#hacktron cehk
+#hacktron চেহক
+//hacktron test
